@@ -2,6 +2,7 @@
 import { Action } from '@/types';
 import { FFmpeg } from '@ffmpeg/ffmpeg';
 import { fetchFile } from '@ffmpeg/util';
+import { convertPdfToSingleImage } from './convert-pdf';
 
 function getFileExtension(file_name: string) {
   const regex = /(?:\.([^.]+))?$/; // Matches the last dot and everything after it
@@ -25,6 +26,33 @@ export default async function convert(
   action: Action,
 ): Promise<any> {
   const { file, to, file_name, file_type } = action;
+  
+  // Handle PDF conversions separately (not using FFmpeg)
+  if (file_type === 'application/pdf' || file_name.toLowerCase().endsWith('.pdf')) {
+    // PDF can only be converted to image formats
+    const validImageFormats = ['png', 'jpg', 'jpeg', 'webp'];
+    if (!validImageFormats.includes(to as string)) {
+      throw new Error(`Cannot convert PDF to ${to}. Supported formats: ${validImageFormats.join(', ')}`);
+    }
+    
+    try {
+      const result = await convertPdfToSingleImage(
+        file,
+        to as 'png' | 'jpg' | 'jpeg' | 'webp',
+        { quality: 0.95, scale: 2 }
+      );
+      
+      return {
+        url: result.url,
+        output: result.filename
+      };
+    } catch (error) {
+      console.error('PDF conversion failed:', error);
+      throw new Error(`PDF conversion failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+  
+  // Handle regular FFmpeg conversions for non-PDF files
   const input = getFileExtension(file_name);
   const output = removeFileExtension(file_name) + '.' + to;
   ffmpeg.writeFile(input, await fetchFile(file));

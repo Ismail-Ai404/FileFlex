@@ -62,6 +62,8 @@ const extensions = {
     "265",
   ],
   audio: ["mp3", "wav", "ogg", "aac", "wma", "flac", "m4a"],
+  // PDF can be converted to image formats
+  document: ["pdf"],
 };
 
 export default function Dropzone() {
@@ -92,6 +94,13 @@ export default function Dropzone() {
     ],
     "audio/*": [],
     "video/*": [],
+    "application/pdf": [".pdf"],
+    // Alternative PDF MIME types for better compatibility
+    "application/x-pdf": [".pdf"],
+    "application/acrobat": [".pdf"],
+    "applications/vnd.pdf": [".pdf"],
+    "text/pdf": [".pdf"],
+    "text/x-pdf": [".pdf"],
   };
 
   // functions
@@ -185,7 +194,6 @@ export default function Dropzone() {
     setActions(
       actions.map((action): Action => {
         if (action.file_name === file_name) {
-          console.log("FOUND");
           return {
             ...action,
             to,
@@ -204,8 +212,22 @@ export default function Dropzone() {
     setIsReady(tmp_is_ready);
   };
   const deleteAction = (action: Action): void => {
-    setActions(actions.filter((elt) => elt !== action));
-    setFiles(files.filter((elt) => elt.name !== action.file_name));
+    console.log('Deleting action:', action.file_name);
+    const newActions = actions.filter((elt) => elt !== action);
+    const newFiles = files.filter((elt) => elt.name !== action.file_name);
+    
+    console.log('Actions before:', actions.length, 'after:', newActions.length);
+    console.log('Files before:', files.length, 'after:', newFiles.length);
+    
+    setActions(newActions);
+    setFiles(newFiles);
+    
+    // Show success toast
+    toast({
+      title: "File removed",
+      description: `${action.file_name} has been removed from the queue.`,
+      duration: 2000,
+    });
   };
   useEffect(() => {
     if (!actions.length) {
@@ -219,9 +241,19 @@ export default function Dropzone() {
     load();
   }, []);
   const load = async () => {
-    const ffmpeg_response: FFmpeg = await loadFfmpeg();
-    ffmpegRef.current = ffmpeg_response;
-    setIsLoaded(true);
+    try {
+      const ffmpeg_response: FFmpeg = await loadFfmpeg();
+      ffmpegRef.current = ffmpeg_response;
+      setIsLoaded(true);
+    } catch (error) {
+      console.error('Failed to load FFmpeg:', error);
+      toast({
+        variant: "destructive",
+        title: "Failed to load FFmpeg",
+        description: "The file conversion engine could not be loaded. Please refresh the page.",
+        duration: 10000,
+      });
+    }
   };
 
   if (actions.length) {
@@ -230,10 +262,10 @@ export default function Dropzone() {
         {actions.map((action: Action, i: any) => (
           <div
             key={i}
-            className="relative flex flex-wrap items-center justify-between w-full px-4 py-4 space-y-2 border cursor-pointer lg:py-0 rounded-xl h-fit lg:h-20 lg:px-10 lg:flex-nowrap"
+            className="relative flex flex-wrap items-center justify-between w-full px-4 py-4 space-y-2 border lg:py-0 rounded-xl h-fit lg:h-20 lg:px-10 lg:flex-nowrap"
           >
             {!is_loaded && (
-              <Skeleton className="absolute w-full h-full -ml-10 cursor-progress rounded-xl" />
+              <Skeleton className="absolute w-full h-full -ml-10 cursor-progress rounded-xl pointer-events-none" />
             )}
             <div className="flex items-center gap-4">
               <span className="text-2xl text-orange-600">
@@ -275,6 +307,8 @@ export default function Dropzone() {
                       setDefaultValues("audio");
                     } else if (extensions.video.includes(value)) {
                       setDefaultValues("video");
+                    } else if (['png', 'jpg', 'webp'].includes(value)) {
+                      setDefaultValues("image");
                     }
                     setSelected(value);
                     updateAction(action.file_name, value);
@@ -341,22 +375,62 @@ export default function Dropzone() {
                         ))}
                       </div>
                     )}
+                    {(action.file_type.includes("pdf") || action.file_name.toLowerCase().endsWith('.pdf')) && (
+                      <div className="grid grid-cols-2 gap-2 w-fit">
+                        <div className="col-span-1 text-center">
+                          <SelectItem value="png" className="mx-auto">
+                            PNG
+                          </SelectItem>
+                        </div>
+                        <div className="col-span-1 text-center">
+                          <SelectItem value="jpg" className="mx-auto">
+                            JPG
+                          </SelectItem>
+                        </div>
+                        <div className="col-span-1 text-center">
+                          <SelectItem value="webp" className="mx-auto">
+                            WEBP
+                          </SelectItem>
+                        </div>
+                      </div>
+                    )}
                   </SelectContent>
                 </Select>
               </div>
             )}
 
             {action.is_converted ? (
-              <Button variant="outline" onClick={() => download(action)}>
-                Download
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button variant="outline" onClick={() => download(action)}>
+                  Download
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    deleteAction(action);
+                  }}
+                  className="flex items-center justify-center w-8 h-8 p-0 text-lg rounded-full hover:bg-destructive/10 hover:text-destructive transition-colors"
+                >
+                  <MdClose />
+                </Button>
+              </div>
             ) : (
-              <span
-                onClick={() => deleteAction(action)}
-                className="flex items-center justify-center w-10 h-10 text-2xl rounded-full cursor-pointer hover:bg-muted text-foreground"
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  console.log('Cross button clicked for:', action.file_name);
+                  deleteAction(action);
+                }}
+                className="flex items-center justify-center w-10 h-10 p-0 text-2xl rounded-full hover:bg-destructive/10 hover:text-destructive transition-colors"
               >
                 <MdClose />
-              </span>
+              </Button>
             )}
           </div>
         ))}
@@ -412,7 +486,7 @@ export default function Dropzone() {
         toast({
           variant: "destructive",
           title: "Error uploading your file(s)",
-          description: "Allowed Files: Audio, Video and Images.",
+          description: "Allowed Files: Audio, Video, Images and PDFs.",
           duration: 5000,
         });
       }}
@@ -421,7 +495,7 @@ export default function Dropzone() {
         toast({
           variant: "destructive",
           title: "Error uploading your file(s)",
-          description: "Allowed Files: Audio, Video and Images.",
+          description: "Allowed Files: Audio, Video, Images and PDFs.",
           duration: 5000,
         });
       }}
